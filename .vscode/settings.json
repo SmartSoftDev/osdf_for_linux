@@ -1,0 +1,45 @@
+{
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": [
+        "--line-length",
+        "120",
+        "--target-version",
+        "py39"
+    ],
+    "python.linting.pylintEnabled": true,
+    "python.linting.enabled": true,
+    "editor.rulers": [
+        {
+            "column": 120,
+            "color": "gray"
+        }
+    ],
+    "[python]": {
+        "editor.formatOnSave": true,
+        "editor.formatOnPaste": true
+    },
+    "[markdown]": {
+        "editor.formatOnSave": true,
+        "editor.formatOnPaste": true
+    },
+    "python.analysis.extraPaths": [
+        "${workspaceRoot}/web/source",
+        "${workspaceRoot}/tests_e2e/e2e_tf/src/",
+        "${workspaceRoot}/tests_e2e/",
+        "${workspaceRoot}/fmc_simple_packaging/"
+    ],
+    "python.autoComplete.extraPaths": [
+        "${workspaceRoot}/web/source/",
+        "${workspaceRoot}/tests_e2e/e2e_tf/src/",
+        "${workspaceRoot}/tests_e2e/",
+        "${workspaceRoot}/fmc_simple_packaging/"
+    ],
+    "cSpell.words": [
+        "Sanic"
+    ],
+    "markdown-pdf.breaks": true,
+    "markdown-pdf.displayHeaderFooter": false,
+    "files.associations": {
+        "*.hl7.mllp": "hl7"
+    },
+}

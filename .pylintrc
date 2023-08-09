@@ -1,0 +1,19 @@
+[MASTER]
+init-hook='import sys; 
+sys.path.append("./");
+'
+
+# Conan plugin which makes pylint aware of these dynamic fields and their types
+# load-plugins=conans.pylint_plugin
+
+[FORMAT]
+
+# Maximum number of characters on a single line.
+max-line-length=120
+
+[MESSAGES CONTROL]
+
+disable=missing-function-docstring,
+        missing-class-docstring,
+        missing-module-docstring,
+        unspecified-encoding
