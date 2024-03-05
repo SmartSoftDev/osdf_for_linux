@@ -17,6 +17,7 @@ class App:
     def __init__(self) -> None:
         self.args = None
         self.l = None
+        self.out_dir = None
         self.packages = None
         self.packages_info = None
 
@@ -36,7 +37,7 @@ class App:
             default=0,
             help="Limit number of analyzed packages",
         )
-        parser.add_argument("-o", "--output", default=None, help="Output file name")
+        parser.add_argument("-o", "--outputDir", default="./", help="Output directory")
 
         self.args = parser.parse_args()
         if self.args.verbose > 2:
@@ -47,6 +48,7 @@ class App:
             format="%(asctime)s |%(levelname)7s|| %(message)s || %(filename)s:%(lineno).d",
         )
         self.l = logging.getLogger(__name__)
+        self.out_dir = self.args.outputDir
 
     def parse_deb_package_control_file_format(self, fpath=None, f_lines=None):
         if not f_lines:
@@ -133,7 +135,9 @@ class App:
             mandatory_keys = ["Files"]
             for k in mandatory_keys:
                 if k not in ret:
-                    self.l.warning(f"Could not parse copyright file: no key={k} {cr_fpath=}")
+                    self.l.warning(
+                        f"Could not parse copyright file: no key={k} {cr_fpath=}"
+                    )
                     return None
 
             ret["_license_names"] = []
@@ -154,7 +158,9 @@ class App:
                 for ndx, c_file in enumerate(c_files):
                     available_licenses = ret.get("License", [])
                     if ndx >= len(available_licenses):
-                        self.l.warning(f"Cannot find license name for {c_file=} in {cr_fpath}")
+                        self.l.warning(
+                            f"Cannot find license name for {c_file=} in {cr_fpath}"
+                        )
                         continue
                     _add_license_name(available_licenses[ndx].strip())
             else:
@@ -174,20 +180,24 @@ class App:
             p_info = {}
             pout = subprocess.check_output(["dpkg", "-s", p]).decode().strip()
 
-            p_info = self.parse_deb_package_control_file_format(f_lines=pout.split("\n"))
+            p_info = self.parse_deb_package_control_file_format(
+                f_lines=pout.split("\n")
+            )
             new_p = p_info.get("Package")
             if not new_p:
                 self.l.warning(f"could not parse dpkg -s for {p=} {p_info=}")
                 continue
             p_info["_copyright_fpath"] = f"/usr/share/doc/{new_p}/copyright"
-            p_info["_copyright_info"] = self.parse_copyright_file(p_info["_copyright_fpath"])
+            p_info["_copyright_info"] = self.parse_copyright_file(
+                p_info["_copyright_fpath"]
+            )
 
             self.packages_info[new_p] = p_info
         self.l.debug(f"{self.packages_info=}")
 
     def generate_summary_file(self):
-        with open("./summary.md", "w+") as f:
-            with open("all_license_files.md", "w+") as f_a:
+        with open(os.path.join(self.out_dir, "summary.md"), "w+") as f:
+            with open(os.path.join(self.out_dir, "all_license_files.md"), "w+") as f_a:
                 f.write(
                     "# OSDF packages info summary\n\n"
                     "| Nr | Package | Version | License |\n"
@@ -200,9 +210,13 @@ class App:
                     count += 1
                     lic = f"custom license file"
                     if pinfo["_copyright_info"]:
-                        lic = "; ".join(sorted(pinfo["_copyright_info"]["_license_names"]))
+                        lic = "; ".join(
+                            sorted(pinfo["_copyright_info"]["_license_names"])
+                        )
 
-                    f.write(f"| {count} |{pinfo['Package']} | {pinfo['Version']} | {lic} |\n")
+                    f.write(
+                        f"| {count} |{pinfo['Package']} | {pinfo['Version']} | {lic} |\n"
+                    )
                     # all licenses file
 
                     f_a.write(
@@ -214,7 +228,9 @@ class App:
                     )
                     if os.path.exists(pinfo["_copyright_fpath"]):
                         with open(pinfo["_copyright_fpath"], "r") as l_f:
-                            f_a.write(f"### License file content\n\n```\n{l_f.read()}\n```\n\n")
+                            f_a.write(
+                                f"### License file content\n\n```\n{l_f.read()}\n```\n\n"
+                            )
                     else:
                         f_a.write("No license file present\n\n")
 
