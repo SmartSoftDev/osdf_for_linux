@@ -196,8 +196,18 @@ class App:
         self.l.debug(f"{self.packages_info=}")
 
     def generate_summary_file(self):
+        os_release_path = "/etc/os-release"
+        os_release_info = None
+        if os.path.exists(os_release_path):
+            with open(os_release_path) as f:
+                os_release_info = f.read()
+
         with open(os.path.join(self.out_dir, "summary.md"), "w+") as f:
             with open(os.path.join(self.out_dir, "all_license_files.md"), "w+") as f_a:
+                if os_release_info:
+                    f.write(
+                        "# OS-release info\n\n" "```\n" + os_release_info + "```\n\n"
+                    )
                 f.write(
                     "# OSDF packages info summary\n\n"
                     "| Nr | Package | Version | License |\n"
