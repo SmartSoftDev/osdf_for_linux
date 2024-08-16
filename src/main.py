@@ -3,14 +3,21 @@
 Tool to quickly convert from JSON to YAML and vice-versa. 
 """
 
+from collections import OrderedDict
 import os
+import json
 import argparse
 import logging
 import subprocess
+from datetime import datetime, timezone
 
 
 class UnsupportedConfigFileExtension(Exception):
     pass
+
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class App:
@@ -20,6 +27,8 @@ class App:
         self.out_dir = None
         self.packages = None
         self.packages_info = None
+        self.data_format_version = "v1.0.0"
+        self.discover_issues = {"warnings": [], "errors": []}
 
     def args_parse(self):
         parser = argparse.ArgumentParser(description="convert to json")
@@ -30,14 +39,43 @@ class App:
             default=0,
             help="Enable debugging (count up to 3 levels)",
         )
-        parser.add_argument(
+        subparsers = parser.add_subparsers(title="Sub commands")
+
+        sp = subparsers.add_parser("generate", help="Drop to CLI")
+        sp.set_defaults(cmd="generate")
+        sp.add_argument(
             "-l",
             "--limit",
             type=int,
             default=0,
             help="Limit number of analyzed packages",
         )
-        parser.add_argument("-o", "--outputDir", default="./", help="Output directory")
+        sp.add_argument(
+            "-o", "--outputFile", default="./data.json", help="Data.json file path (defaults to ./data.json)"
+        )
+
+        sp = subparsers.add_parser("compare", help="Compare with previous version")
+        sp.set_defaults(cmd="compare")
+
+        sp.add_argument(
+            "old_data_json_fpath",
+            default=None,
+            help="Data file to compare it to",
+        )
+        sp.add_argument(
+            "new_data_json_fpath",
+            default=None,
+            help="Data file to be compared",
+        )
+
+        sp = subparsers.add_parser("render", help="Generate Markdown data")
+        sp.set_defaults(cmd="render")
+        sp.add_argument(
+            "data_json_fpath",
+            default=None,
+            help="Data file to render from",
+        )
+        sp.add_argument("-o", "--outputDir", default=None, help="Output directory")
 
         self.args = parser.parse_args()
         if self.args.verbose > 2:
@@ -48,7 +86,6 @@ class App:
             format="%(asctime)s |%(levelname)7s|| %(message)s || %(filename)s:%(lineno).d",
         )
         self.l = logging.getLogger(__name__)
-        self.out_dir = self.args.outputDir
 
     def parse_deb_package_control_file_format(self, fpath=None, f_lines=None):
         if not f_lines:
@@ -122,9 +159,12 @@ class App:
 
             self.packages.append(pkg)
             count += 1
-            if self.args.limit > 0 and count >= self.args.limit:
-                break
         self.packages = sorted(self.packages)
+        if self.args.limit > 0:
+            self.packages = self.packages[: self.args.limit]
+            self.l.info(f"Selected {self.args.limit} out of {count}")
+        else:
+            self.l.info(f"All packages {count=}")
         self.l.debug(f"{self.packages=}")
 
     def parse_copyright_file(self, cr_fpath):
@@ -135,9 +175,9 @@ class App:
             mandatory_keys = ["Files"]
             for k in mandatory_keys:
                 if k not in ret:
-                    self.l.warning(
-                        f"Could not parse copyright file: no key={k} {cr_fpath=}"
-                    )
+                    msg = f"Could not parse copyright file: no key={k} {cr_fpath=}"
+                    self.l.warning(msg)
+                    self.discover_issues["warnings"].append(msg)
                     return None
 
             ret["_license_names"] = []
@@ -158,9 +198,7 @@ class App:
                 for ndx, c_file in enumerate(c_files):
                     available_licenses = ret.get("License", [])
                     if ndx >= len(available_licenses):
-                        self.l.warning(
-                            f"Cannot find license name for {c_file=} in {cr_fpath}"
-                        )
+                        self.l.warning(f"Cannot find license name for {c_file=} in {cr_fpath}")
                         continue
                     _add_license_name(available_licenses[ndx].strip())
             else:
@@ -175,39 +213,84 @@ class App:
     def get_packages_info(self):
         if not self.packages:
             return
-        self.packages_info = {}
+        self.packages_info = OrderedDict()
         for ndx, p in enumerate(self.packages):
             p_info = {}
             pout = subprocess.check_output(["dpkg", "-s", p]).decode().strip()
 
-            p_info = self.parse_deb_package_control_file_format(
-                f_lines=pout.split("\n")
-            )
+            p_info = self.parse_deb_package_control_file_format(f_lines=pout.split("\n"))
             new_p = p_info.get("Package")
             if not new_p:
                 self.l.warning(f"could not parse dpkg -s for {p=} {p_info=}")
                 continue
             p_info["_copyright_fpath"] = f"/usr/share/doc/{new_p}/copyright"
-            p_info["_copyright_info"] = self.parse_copyright_file(
-                p_info["_copyright_fpath"]
-            )
+            p_info["_copyright_info"] = self.parse_copyright_file(p_info["_copyright_fpath"])
 
             self.packages_info[new_p] = p_info
         self.l.debug(f"{self.packages_info=}")
 
-    def generate_summary_file(self):
+    def get_os_info(self):
         os_release_path = "/etc/os-release"
-        os_release_info = None
+        self.os_release_info = None
         if os.path.exists(os_release_path):
             with open(os_release_path) as f:
-                os_release_info = f.read()
+                self.os_release_info = f.read()
 
+    def save_data(self):
+        out_dir = os.path.dirname(self.args.outputFile)
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+
+        with open(self.args.outputFile, "w+") as f:
+            json.dump(
+                {
+                    "generate_ts": utc_now(),
+                    "package_info": self.packages_info,
+                    "os_release": self.os_release_info,
+                    "format_version": self.data_format_version,
+                    "issues": self.discover_issues,
+                    "args": vars(self.args),
+                },
+                f,
+                indent=4,
+            )
+
+    def generate_compare_data(self):
+        with open(self.args.old_data_json_fpath) as f:
+            old_data = json.load(f)
+        old_pkg_info = old_data.get("package_info")
+        with open(self.args.new_data_json_fpath) as f:
+            new_data = json.load(f)
+        new_pkg_info = new_data.get("package_info")
+        new_packages = []
+        deleted_packages = []
+        changed_packages = []
+        for p, pinfo in old_pkg_info.items():
+            if p not in new_pkg_info:
+                deleted_packages.append(pinfo.get("Package"))
+        for p, pinfo in new_pkg_info.items():
+            if p not in old_pkg_info:
+                new_packages.append(pinfo.get("Package"))
+                continue
+            if pinfo["Version"] != old_pkg_info[p]["Version"]:
+                changed_packages.append(old_pkg_info[p])
+        new_data["compare_info"] = {
+            "compare_ts": utc_now(),
+            "compared_with_path": self.args.old_data_json_fpath,
+            "new_packages": new_packages,
+            "deleted_packages": deleted_packages,
+            "changed_packages": changed_packages,
+        }
+        with open(self.args.new_data_json_fpath, "w") as f:
+            json.dump(new_data, f, indent=4)
+
+    def render_md_pck_info(self, data):
+        packages = data.get("package_info")
+        os_release_info = data.get("os_release")
         with open(os.path.join(self.out_dir, "summary.md"), "w+") as f:
             with open(os.path.join(self.out_dir, "all_license_files.md"), "w+") as f_a:
                 if os_release_info:
-                    f.write(
-                        "# OS-release info\n\n" "```\n" + os_release_info + "```\n\n"
-                    )
+                    f.write("# OS-release info\n\n" "```\n" + os_release_info + "```\n\n")
                 f.write(
                     "# OSDF packages info summary\n\n"
                     "| Nr | Package | Version | License |\n"
@@ -216,17 +299,13 @@ class App:
 
                 f_a.write("# OSDF license files\n\n")
                 count = 0
-                for p, pinfo in self.packages_info.items():
+                for p, pinfo in packages.items():
                     count += 1
                     lic = f"custom license file"
                     if pinfo["_copyright_info"]:
-                        lic = "; ".join(
-                            sorted(pinfo["_copyright_info"]["_license_names"])
-                        )
+                        lic = "; ".join(sorted(pinfo["_copyright_info"]["_license_names"]))
 
-                    f.write(
-                        f"| {count} |{pinfo['Package']} | {pinfo['Version']} | {lic} |\n"
-                    )
+                    f.write(f"| {count} |{pinfo['Package']} | {pinfo['Version']} | {lic} |\n")
                     # all licenses file
 
                     f_a.write(
@@ -238,17 +317,84 @@ class App:
                     )
                     if os.path.exists(pinfo["_copyright_fpath"]):
                         with open(pinfo["_copyright_fpath"], "r") as l_f:
-                            f_a.write(
-                                f"### License file content\n\n```\n{l_f.read()}\n```\n\n"
-                            )
+                            f_a.write(f"### License file content\n\n```\n{l_f.read()}\n```\n\n")
                     else:
                         f_a.write("No license file present\n\n")
 
-    def start(self):
-        self.args_parse()
+    def render_compare_info(self, data):
+        packages = data.get("package_info")
+        compare_info = data.get("compare_info")
+        if compare_info is None:
+            return
+        new_packages = compare_info.get("new_packages")
+        deleted_packages = compare_info.get("deleted_packages")
+        changed_packages = compare_info.get("changed_packages")
+        dst_fpath = os.path.join(self.out_dir, "compare.md")
+        with open(dst_fpath, "w+") as f:
+            f.write(
+                f"## Comparin with {compare_info.get('compared_with_path')!r}\n\n"
+                "### New Packages\n\n"
+                f"There are {len(new_packages)} new packages.\n\n"
+            )
+            if len(new_packages):
+                f.write("| NR | Package |\n| --------------- | ------------------ |\n")
+            for ndx, pname in enumerate(new_packages, 1):
+                f.write(f"| {ndx} | {pname} | \n")
+            f.write("\n")
+
+            f.write("### Deleted Packages\n\n" f"There are {len(deleted_packages)} deleted packages.\n\n")
+            if len(deleted_packages):
+                f.write("| NR | Package |\n| --------------- | ------------------ |\n")
+            for ndx, pname in enumerate(deleted_packages, 1):
+                f.write(f"| {ndx} | {pname} | \n")
+            f.write("\n")
+
+            f.write("### Changed Packages\n\n" f"There are {len(changed_packages)} changed packages.\n\n")
+            if len(changed_packages):
+                f.write(
+                    "| NR | Package | Old Version | New Version |\n"
+                    "| --------------- | ------------------ | ------------------ | ------------------ |\n"
+                )
+            for ndx, old_pinfo in enumerate(changed_packages, 1):
+                pname = old_pinfo.get("Package")
+                pinfo = packages.get(pname)
+                f.write(f"| {ndx} | {pname} | {old_pinfo.get('Version')} | {pinfo.get('Version')} |\n")
+            f.write("\n")
+
+    def _cmd_compare(self):
+        self.generate_compare_data()
+
+    def _cmd_generate(self):
         self.get_package_list()
         self.get_packages_info()
-        self.generate_summary_file()
+        self.get_os_info()
+        self.save_data()
+
+    def _cmd_render(self):
+        self.out_dir = self.args.outputDir
+        if self.out_dir is None:
+            self.out_dir = os.path.dirname(self.args.data_json_fpath)
+        if not os.path.exists(self.out_dir):
+            os.makedirs(self.out_dir)
+
+        with open(self.args.data_json_fpath) as f:
+            data = json.load(f)
+        self.render_md_pck_info(data)
+        self.render_compare_info(data)
+
+    def start(self):
+        self.args_parse()
+        method_name = f"_cmd_{self.args.cmd}"
+        try:
+            method = self.__getattribute__(method_name)
+        except AttributeError:
+            self.l.error("Unknown CMD=%r", self.args.cmd)
+            return
+        try:
+            # call the message handler
+            method()
+        except Exception:
+            self.l.exception("Unhandled exception while handling cmd=%r", self.args.cmd)
 
 
 if __name__ == "__main__":
