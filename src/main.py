@@ -76,6 +76,7 @@ class App:
             help="Data file to render from",
         )
         sp.add_argument("-o", "--outputDir", default=None, help="Output directory")
+        sp.add_argument("-f", "--format", default="md", choices=["md", "adoc"], help="Output format (default Markdown)")
 
         self.args = parser.parse_args()
         if self.args.verbose > 2:
@@ -321,7 +322,7 @@ class App:
                     else:
                         f_a.write("No license file present\n\n")
 
-    def render_compare_info(self, data):
+    def render_md_compare_info(self, data):
         packages = data.get("package_info")
         compare_info = data.get("compare_info")
         if compare_info is None:
@@ -361,6 +362,77 @@ class App:
                 f.write(f"| {ndx} | {pname} | {old_pinfo.get('Version')} | {pinfo.get('Version')} |\n")
             f.write("\n")
 
+    def render_adoc_pck_info(self, data):
+        packages = data.get("package_info")
+        os_release_info = data.get("os_release")
+        with open(os.path.join(self.out_dir, "summary.adoc"), "w+") as f:
+            with open(os.path.join(self.out_dir, "all_license_files.adoc"), "w+") as f_a:
+                if os_release_info:
+                    f.write("== OS-release info\n\n[literal]\n" + os_release_info + "\n\n")
+                f.write('== OSDF packages info summary\n\n[cols="1,4,4,4"]\n|===\n|Nr |Package |Version |License\n\n')
+
+                f_a.write("== OSDF license files\n\n")
+                count = 0
+                for p, pinfo in packages.items():
+                    count += 1
+                    lic = f"custom license file"
+                    if pinfo["_copyright_info"]:
+                        lic = "; ".join(sorted(pinfo["_copyright_info"]["_license_names"]))
+
+                    f.write(f"|{count}\n|{pinfo['Package']}\n|{pinfo['Version']}\n|{lic}\n")
+                    # all licenses file
+
+                    f_a.write(
+                        f"=== {count}. Package: {pinfo['Package']} \n\n"
+                        "==== Summary\n\n"
+                        '[cols="1,1,1,1"]\n|===\n|Package |Version |Source |License \n\n'
+                        f"|{pinfo['Package']}\n|{pinfo['Version']}\n|{pinfo['_copyright_fpath']}\n|{lic}\n|===\n\n"
+                    )
+                    if os.path.exists(pinfo["_copyright_fpath"]):
+                        with open(pinfo["_copyright_fpath"], "r") as l_f:
+                            f_a.write(f"==== License file content\n\n....\n{l_f.read()}\n....\n\n")
+                    else:
+                        f_a.write("No license file present\n\n")
+                f.write("|===\n")
+                f_a.write("|===\n")
+
+    def render_adoc_compare_info(self, data):
+        packages = data.get("package_info")
+        compare_info = data.get("compare_info")
+        if compare_info is None:
+            return
+        new_packages = compare_info.get("new_packages")
+        deleted_packages = compare_info.get("deleted_packages")
+        changed_packages = compare_info.get("changed_packages")
+        dst_fpath = os.path.join(self.out_dir, "compare.md")
+        with open(dst_fpath, "w+") as f:
+            f.write(
+                f"=== Comparin with {compare_info.get('compared_with_path')!r}\n\n"
+                "==== New Packages\n\n"
+                f"There are {len(new_packages)} new packages.\n\n"
+            )
+            if len(new_packages):
+                f.write('[cols="1,1"]\n|===\n|NR | Package\n\n')
+            for ndx, pname in enumerate(new_packages, 1):
+                f.write(f"|{ndx}\n|{pname}\n")
+            f.write("|===\n\n")
+
+            f.write("==== Deleted Packages\n\n" f"There are {len(deleted_packages)} deleted packages.\n\n")
+            if len(deleted_packages):
+                f.write('[cols="1,1"]\n|===\n|NR | Package\n\n')
+            for ndx, pname in enumerate(deleted_packages, 1):
+                f.write(f"|{ndx}\n|{pname}\n")
+            f.write("|===\n\n")
+
+            f.write("==== Changed Packages\n\n" f"There are {len(changed_packages)} changed packages.\n\n")
+            if len(changed_packages):
+                f.write('[cols="1,1,1,1"]\n|===\n|NR |Package |Old Version |New Version\n\n')
+            for ndx, old_pinfo in enumerate(changed_packages, 1):
+                pname = old_pinfo.get("Package")
+                pinfo = packages.get(pname)
+                f.write(f"|{ndx}\n|{pname}\n|{old_pinfo.get('Version')}\n|{pinfo.get('Version')}\n")
+            f.write("|===\n\n")
+
     def _cmd_compare(self):
         self.generate_compare_data()
 
@@ -379,8 +451,12 @@ class App:
 
         with open(self.args.data_json_fpath) as f:
             data = json.load(f)
-        self.render_md_pck_info(data)
-        self.render_compare_info(data)
+        if self.args.format == "md":
+            self.render_md_pck_info(data)
+            self.render_md_compare_info(data)
+        else:
+            self.render_adoc_pck_info(data)
+            self.render_adoc_compare_info(data)
 
     def start(self):
         self.args_parse()

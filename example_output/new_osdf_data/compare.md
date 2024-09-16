@@ -1,26 +1,40 @@
-## Comparin with 'old_osdf_data/data.json'
+=== Comparin with 'old_osdf_data/data.json'
 
-### New Packages
+==== New Packages
 
 There are 1 new packages.
 
-| NR | Package |
-| --------------- | ------------------ |
-| 1 | acl | 
+[cols="1,1"]
+|===
+|NR | Package
 
-### Deleted Packages
+|1
+|acl
+|===
+
+==== Deleted Packages
 
 There are 1 deleted packages.
 
-| NR | Package |
-| --------------- | ------------------ |
-| 1 | binutils-x86-64-linux-gnu | 
+[cols="1,1"]
+|===
+|NR | Package
 
-### Changed Packages
+|1
+|binutils-x86-64-linux-gnu
+|===
+
+==== Changed Packages
 
 There are 1 changed packages.
 
-| NR | Package | Old Version | New Version |
-| --------------- | ------------------ | ------------------ | ------------------ |
-| 1 | accountsservice | 22.07.5-2ubuntu1.4 | 22.07.5-2ubuntu1.5 |
+[cols="1,1,1,1"]
+|===
+|NR |Package |Old Version |New Version
+
+|1
+|accountsservice
+|22.07.5-2ubuntu1.4
+|22.07.5-2ubuntu1.5
+|===
 
