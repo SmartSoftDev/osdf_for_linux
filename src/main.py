@@ -393,8 +393,8 @@ class App:
                             f_a.write(f"==== License file content\n\n....\n{l_f.read()}\n....\n\n")
                     else:
                         f_a.write("No license file present\n\n")
-                f.write("|===\n")
-                f_a.write("|===\n")
+                f.write("\n")
+                f_a.write("\n")
 
     def render_adoc_compare_info(self, data):
         packages = data.get("package_info")
